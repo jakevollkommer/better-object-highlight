@@ -31,13 +31,11 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumMap;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import javax.annotation.Nullable;
 import javax.inject.Inject;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -228,14 +226,14 @@ public class BetterObjectHighlightPlugin extends Plugin
 
 		ObjectComposition composition = client.getObjectDefinition(spawnedObject.getId());
 
-		boolean shouldHide = !hideMatcher.isEmpty() && matches(hideMatcher, spawnedObject, composition);
+		boolean shouldHide = presetFor(hideMatcher, spawnedObject, composition) != null;
 		if (shouldHide)
 		{
 			removeFromScene(spawnedObject, tile);
 			return;
 		}
 
-		Set<HighlightStyle> matchedStyles = matchingStyles(spawnedObject, composition);
+		Map<HighlightStyle, Integer> matchedStyles = matchingStyles(spawnedObject, composition);
 		if (matchedStyles.isEmpty())
 		{
 			return;
@@ -245,11 +243,24 @@ public class BetterObjectHighlightPlugin extends Plugin
 		highlightedObjects.add(new HighlightedObject(spawnedObject, composition, matchedStyles, isMultiloc));
 	}
 
-	private Set<HighlightStyle> matchingStyles(TileObject spawnedObject, ObjectComposition composition)
+	private Map<HighlightStyle, Integer> matchingStyles(TileObject spawnedObject, ObjectComposition composition)
 	{
-		return Arrays.stream(HighlightStyle.values())
-			.filter(style -> matches(matcherFor(style), spawnedObject, composition))
-			.collect(Collectors.toCollection(() -> EnumSet.noneOf(HighlightStyle.class)));
+		Map<HighlightStyle, Integer> presetByStyle = new EnumMap<>(HighlightStyle.class);
+		Arrays.stream(HighlightStyle.values())
+			.forEach(style -> putStyleIfMatched(presetByStyle, style, spawnedObject, composition));
+		return presetByStyle;
+	}
+
+	private void putStyleIfMatched(Map<HighlightStyle, Integer> presetByStyle, HighlightStyle style,
+		TileObject spawnedObject, ObjectComposition composition)
+	{
+		Integer preset = presetFor(matcherFor(style), spawnedObject, composition);
+		if (preset == null)
+		{
+			return;
+		}
+
+		presetByStyle.put(style, preset);
 	}
 
 	private StyleMatcher matcherFor(HighlightStyle style)
@@ -277,66 +288,121 @@ public class BetterObjectHighlightPlugin extends Plugin
 		scene.removeTile(tile);
 	}
 
-	private boolean matches(StyleMatcher matcher, TileObject spawnedObject, ObjectComposition composition)
+	/**
+	 * The preset color index of the entry matching this object (0 = the style's default
+	 * colors), or null if no entry in the matcher matches it.
+	 */
+	@Nullable
+	private Integer presetFor(StyleMatcher matcher, TileObject spawnedObject, ObjectComposition composition)
 	{
 		if (matcher.isEmpty())
 		{
-			return false;
+			return null;
 		}
 
-		boolean matchesBaseObject = matcher.matchesId(spawnedObject.getId())
-			|| matcher.matchesName(composition.getName());
-		return matchesBaseObject || matchesAnyImpostor(matcher, composition);
+		Integer idPreset = matcher.presetForId(spawnedObject.getId());
+		if (idPreset != null)
+		{
+			return idPreset;
+		}
+
+		Integer namePreset = matcher.presetForName(composition.getName());
+		if (namePreset != null)
+		{
+			return namePreset;
+		}
+
+		return presetForAnyImpostor(matcher, composition);
 	}
 
-	private boolean matchesAnyImpostor(StyleMatcher matcher, ObjectComposition composition)
+	@Nullable
+	private Integer presetForAnyImpostor(StyleMatcher matcher, ObjectComposition composition)
 	{
 		int[] impostorIds = composition.getImpostorIds();
 		if (impostorIds == null)
 		{
-			return false;
+			return null;
 		}
 
 		return Arrays.stream(impostorIds)
 			.filter(impostorId -> impostorId != -1)
-			.anyMatch(impostorId -> matchesImpostor(matcher, impostorId));
+			.mapToObj(impostorId -> presetForImpostor(matcher, impostorId))
+			.filter(Objects::nonNull)
+			.findFirst()
+			.orElse(null);
 	}
 
-	private boolean matchesImpostor(StyleMatcher matcher, int impostorId)
+	@Nullable
+	private Integer presetForImpostor(StyleMatcher matcher, int impostorId)
 	{
+		Integer idPreset = matcher.presetForId(impostorId);
+		if (idPreset != null)
+		{
+			return idPreset;
+		}
+
 		// id check first: the name check costs an object definition lookup
-		return matcher.matchesId(impostorId)
-			|| (matcher.hasNamePatterns() && matcher.matchesName(client.getObjectDefinition(impostorId).getName()));
+		if (!matcher.hasNamePatterns())
+		{
+			return null;
+		}
+
+		return matcher.presetForName(client.getObjectDefinition(impostorId).getName());
 	}
 
 	/**
-	 * Styles to render right now for a tracked object. For multilocs the effective object
-	 * varies with varbits, so re-resolve the impostor each frame. Must run on the client thread.
+	 * Styles to render right now for a tracked object, each mapped to its preset color index.
+	 * For multilocs the effective object varies with varbits, so re-resolve the impostor each
+	 * frame. Must run on the client thread.
 	 */
-	Set<HighlightStyle> stylesToRender(HighlightedObject highlighted)
+	Map<HighlightStyle, Integer> stylesToRender(HighlightedObject highlighted)
 	{
 		if (!highlighted.isMultiloc())
 		{
-			return highlighted.getStyles();
+			return highlighted.getPresetByStyle();
 		}
 
 		ObjectComposition impostor = highlighted.getBaseComposition().getImpostor();
 		if (impostor == null)
 		{
-			return Collections.emptySet();
+			return Collections.emptyMap();
 		}
 
 		int baseObjectId = highlighted.getTileObject().getId();
-		return Arrays.stream(HighlightStyle.values())
-			.filter(style -> multilocMatches(matcherFor(style), baseObjectId, impostor))
-			.collect(Collectors.toCollection(() -> EnumSet.noneOf(HighlightStyle.class)));
+		Map<HighlightStyle, Integer> presetByStyle = new EnumMap<>(HighlightStyle.class);
+		Arrays.stream(HighlightStyle.values())
+			.forEach(style -> putMultilocStyleIfMatched(presetByStyle, style, baseObjectId, impostor));
+		return presetByStyle;
 	}
 
-	private static boolean multilocMatches(StyleMatcher matcher, int baseObjectId, ObjectComposition impostor)
+	private void putMultilocStyleIfMatched(Map<HighlightStyle, Integer> presetByStyle, HighlightStyle style,
+		int baseObjectId, ObjectComposition impostor)
 	{
-		return matcher.matchesId(baseObjectId)
-			|| matcher.matchesId(impostor.getId())
-			|| matcher.matchesName(impostor.getName());
+		Integer preset = multilocPreset(matcherFor(style), baseObjectId, impostor);
+		if (preset == null)
+		{
+			return;
+		}
+
+		presetByStyle.put(style, preset);
+	}
+
+	@Nullable
+	private static Integer multilocPreset(StyleMatcher matcher, int baseObjectId, ObjectComposition impostor)
+	{
+		Integer basePreset = matcher.presetForId(baseObjectId);
+		if (basePreset != null)
+		{
+			return basePreset;
+		}
+
+		Integer impostorPreset = matcher.presetForId(impostor.getId());
+		if (impostorPreset != null)
+		{
+			return impostorPreset;
+		}
+
+		return matcher.presetForName(impostor.getName());
 	}
 
 	private void rescanSceneIfLoggedIn()

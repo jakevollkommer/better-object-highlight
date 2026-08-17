@@ -50,13 +50,13 @@ public interface BetterObjectHighlightConfig extends Config
 		return true;
 	}
 
-	@ConfigItem(keyName = "hullIds", name = "IDs to highlight", description = "Object IDs to hull-highlight, separated by commas or newlines", section = hullSection, position = 1)
+	@ConfigItem(keyName = "hullIds", name = "IDs to highlight", description = "e.g. 1234, or 1234:2 for preset color 2", section = hullSection, position = 1)
 	default String hullIds()
 	{
 		return "";
 	}
 
-	@ConfigItem(keyName = "hullNames", name = "Names to highlight", description = "Object names to hull-highlight, separated by commas or newlines. Supports * wildcards", section = hullSection, position = 2)
+	@ConfigItem(keyName = "hullNames", name = "Names to highlight", description = "e.g. Guardian*, or Guardian*:2 for preset color 2", section = hullSection, position = 2)
 	default String hullNames()
 	{
 		return "";
@@ -89,13 +89,13 @@ public interface BetterObjectHighlightConfig extends Config
 		return true;
 	}
 
-	@ConfigItem(keyName = "outlineIds", name = "IDs to highlight", description = "Object IDs to outline, separated by commas or newlines", section = outlineSection, position = 1)
+	@ConfigItem(keyName = "outlineIds", name = "IDs to highlight", description = "e.g. 1234, or 1234:2 for preset color 2", section = outlineSection, position = 1)
 	default String outlineIds()
 	{
 		return "";
 	}
 
-	@ConfigItem(keyName = "outlineNames", name = "Names to highlight", description = "Object names to outline, separated by commas or newlines. Supports * wildcards", section = outlineSection, position = 2)
+	@ConfigItem(keyName = "outlineNames", name = "Names to highlight", description = "e.g. Guardian*, or Guardian*:2 for preset color 2", section = outlineSection, position = 2)
 	default String outlineNames()
 	{
 		return "";
@@ -135,13 +135,13 @@ public interface BetterObjectHighlightConfig extends Config
 		return true;
 	}
 
-	@ConfigItem(keyName = "clickboxIds", name = "IDs to highlight", description = "Object IDs to clickbox-highlight, separated by commas or newlines", section = clickboxSection, position = 1)
+	@ConfigItem(keyName = "clickboxIds", name = "IDs to highlight", description = "e.g. 1234, or 1234:2 for preset color 2", section = clickboxSection, position = 1)
 	default String clickboxIds()
 	{
 		return "";
 	}
 
-	@ConfigItem(keyName = "clickboxNames", name = "Names to highlight", description = "Object names to clickbox-highlight, separated by commas or newlines. Supports * wildcards", section = clickboxSection, position = 2)
+	@ConfigItem(keyName = "clickboxNames", name = "Names to highlight", description = "e.g. Guardian*, or Guardian*:2 for preset color 2", section = clickboxSection, position = 2)
 	default String clickboxNames()
 	{
 		return "";
@@ -174,13 +174,13 @@ public interface BetterObjectHighlightConfig extends Config
 		return true;
 	}
 
-	@ConfigItem(keyName = "tileIds", name = "IDs to highlight", description = "Object IDs to tile-highlight, separated by commas or newlines", section = tileSection, position = 1)
+	@ConfigItem(keyName = "tileIds", name = "IDs to highlight", description = "e.g. 1234, or 1234:2 for preset color 2", section = tileSection, position = 1)
 	default String tileIds()
 	{
 		return "";
 	}
 
-	@ConfigItem(keyName = "tileNames", name = "Names to highlight", description = "Object names to tile-highlight, separated by commas or newlines. Supports * wildcards", section = tileSection, position = 2)
+	@ConfigItem(keyName = "tileNames", name = "Names to highlight", description = "e.g. Guardian*, or Guardian*:2 for preset color 2", section = tileSection, position = 2)
 	default String tileNames()
 	{
 		return "";
@@ -213,20 +213,98 @@ public interface BetterObjectHighlightConfig extends Config
 		return false;
 	}
 
-	@ConfigItem(keyName = "entityHiderIds", name = "IDs to hide", description = "Object IDs to hide, separated by commas or newlines", section = hiderSection, position = 1)
+	@ConfigItem(keyName = "entityHiderIds", name = "IDs to hide", description = "e.g. 1234, comma or newline separated", section = hiderSection, position = 1)
 	default String entityHiderIds()
 	{
 		return "";
 	}
 
-	@ConfigItem(keyName = "entityHiderNames", name = "Names to hide", description = "Object names to hide, separated by commas or newlines. Supports * wildcards.<br>Note: hiding a wall, decoration or ground object removes everything on its tile", section = hiderSection, position = 2)
+	@ConfigItem(keyName = "entityHiderNames", name = "Names to hide", description = "e.g. Guardian*, comma or newline separated", section = hiderSection, position = 2)
 	default String entityHiderNames()
 	{
 		return "";
 	}
 
+	@ConfigSection(
+		name = "Preset colors",
+		description = "Alternate colors selectable per entry with an :n suffix, e.g. 1234:1 or Guardian*:2",
+		position = 5,
+		closedByDefault = true
+	)
+	String presetSection = "presetSection";
+
+	@Alpha
+	@ConfigItem(keyName = "presetColor1", name = "Preset 1", description = "Border color for :1 entries", section = presetSection, position = 0)
+	default Color presetColor1()
+	{
+		return Color.RED;
+	}
+
+	@Alpha
+	@ConfigItem(keyName = "presetFillColor1", name = "Preset 1 fill", description = "Fill color for :1 entries", section = presetSection, position = 1)
+	default Color presetFillColor1()
+	{
+		return new Color(255, 0, 0, 20);
+	}
+
+	@Alpha
+	@ConfigItem(keyName = "presetColor2", name = "Preset 2", description = "Border color for :2 entries", section = presetSection, position = 2)
+	default Color presetColor2()
+	{
+		return Color.GREEN;
+	}
+
+	@Alpha
+	@ConfigItem(keyName = "presetFillColor2", name = "Preset 2 fill", description = "Fill color for :2 entries", section = presetSection, position = 3)
+	default Color presetFillColor2()
+	{
+		return new Color(0, 255, 0, 20);
+	}
+
+	@Alpha
+	@ConfigItem(keyName = "presetColor3", name = "Preset 3", description = "Border color for :3 entries", section = presetSection, position = 4)
+	default Color presetColor3()
+	{
+		return Color.BLUE;
+	}
+
+	@Alpha
+	@ConfigItem(keyName = "presetFillColor3", name = "Preset 3 fill", description = "Fill color for :3 entries", section = presetSection, position = 5)
+	default Color presetFillColor3()
+	{
+		return new Color(0, 0, 255, 20);
+	}
+
+	@Alpha
+	@ConfigItem(keyName = "presetColor4", name = "Preset 4", description = "Border color for :4 entries", section = presetSection, position = 6)
+	default Color presetColor4()
+	{
+		return Color.ORANGE;
+	}
+
+	@Alpha
+	@ConfigItem(keyName = "presetFillColor4", name = "Preset 4 fill", description = "Fill color for :4 entries", section = presetSection, position = 7)
+	default Color presetFillColor4()
+	{
+		return new Color(255, 200, 0, 20);
+	}
+
+	@Alpha
+	@ConfigItem(keyName = "presetColor5", name = "Preset 5", description = "Border color for :5 entries", section = presetSection, position = 8)
+	default Color presetColor5()
+	{
+		return Color.WHITE;
+	}
+
+	@Alpha
+	@ConfigItem(keyName = "presetFillColor5", name = "Preset 5 fill", description = "Fill color for :5 entries", section = presetSection, position = 9)
+	default Color presetFillColor5()
+	{
+		return new Color(255, 255, 255, 20);
+	}
+
 	@Range(min = 1, max = 8)
-	@ConfigItem(keyName = "borderWidth", name = "Border width", description = "Stroke width for hull, clickbox and tile highlights", position = 5)
+	@ConfigItem(keyName = "borderWidth", name = "Border width", description = "Stroke width for hull, clickbox and tile highlights", position = 6)
 	default int borderWidth()
 	{
 		return 2;

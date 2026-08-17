@@ -26,14 +26,15 @@
 package com.betterobjecthighlight;
 
 import java.awt.BasicStroke;
+import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Graphics2D;
 import java.awt.Polygon;
 import java.awt.Shape;
 import java.awt.Stroke;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.stream.Stream;
 import javax.inject.Inject;
 import net.runelite.api.Client;
@@ -103,30 +104,67 @@ class BetterObjectHighlightOverlay extends Overlay
 			return;
 		}
 
-		Set<HighlightStyle> styles = plugin.stylesToRender(highlighted);
-		if (styles.isEmpty())
+		Map<HighlightStyle, Integer> presetByStyle = plugin.stylesToRender(highlighted);
+		if (presetByStyle.isEmpty())
 		{
 			return;
 		}
 
-		if (styles.contains(HighlightStyle.HULL))
+		Integer hullPreset = presetByStyle.get(HighlightStyle.HULL);
+		if (hullPreset != null)
 		{
-			renderConvexHull(graphics, tileObject, stroke);
+			renderConvexHull(graphics, tileObject, stroke, hullPreset);
 		}
 
-		if (styles.contains(HighlightStyle.OUTLINE))
+		Integer outlinePreset = presetByStyle.get(HighlightStyle.OUTLINE);
+		if (outlinePreset != null)
 		{
-			modelOutlineRenderer.drawOutline(tileObject, config.outlineWidth(), config.outlineColor(), config.outlineFeather());
+			Color outlineColor = borderColor(outlinePreset, config.outlineColor());
+			modelOutlineRenderer.drawOutline(tileObject, config.outlineWidth(), outlineColor, config.outlineFeather());
 		}
 
-		if (styles.contains(HighlightStyle.CLICKBOX))
+		Integer clickboxPreset = presetByStyle.get(HighlightStyle.CLICKBOX);
+		if (clickboxPreset != null)
 		{
-			renderClickbox(graphics, tileObject, stroke);
+			renderClickbox(graphics, tileObject, stroke, clickboxPreset);
 		}
 
-		if (styles.contains(HighlightStyle.TILE))
+		Integer tilePreset = presetByStyle.get(HighlightStyle.TILE);
+		if (tilePreset != null)
 		{
-			renderTile(graphics, tileObject, stroke);
+			renderTile(graphics, tileObject, stroke, tilePreset);
+		}
+	}
+
+	/**
+	 * An entry's preset border color, or the style's default when the entry has no preset.
+	 */
+	private Color borderColor(int preset, Color styleDefault)
+	{
+		switch (preset)
+		{
+			case 1: return config.presetColor1();
+			case 2: return config.presetColor2();
+			case 3: return config.presetColor3();
+			case 4: return config.presetColor4();
+			case 5: return config.presetColor5();
+			default: return styleDefault;
+		}
+	}
+
+	/**
+	 * An entry's preset fill color, or the style's default when the entry has no preset.
+	 */
+	private Color fillColor(int preset, Color styleDefault)
+	{
+		switch (preset)
+		{
+			case 1: return config.presetFillColor1();
+			case 2: return config.presetFillColor2();
+			case 3: return config.presetFillColor3();
+			case 4: return config.presetFillColor4();
+			case 5: return config.presetFillColor5();
+			default: return styleDefault;
 		}
 	}
 
@@ -144,11 +182,13 @@ class BetterObjectHighlightOverlay extends Overlay
 		return !isHiddenForOverlap;
 	}
 
-	private void renderConvexHull(Graphics2D graphics, TileObject tileObject, Stroke stroke)
+	private void renderConvexHull(Graphics2D graphics, TileObject tileObject, Stroke stroke, int preset)
 	{
+		Color border = borderColor(preset, config.hullColor());
+		Color fill = fillColor(preset, config.hullFillColor());
 		hullShapes(tileObject)
 			.filter(Objects::nonNull)
-			.forEach(hull -> OverlayUtil.renderPolygon(graphics, hull, config.hullColor(), config.hullFillColor(), stroke));
+			.forEach(hull -> OverlayUtil.renderPolygon(graphics, hull, border, fill, stroke));
 	}
 
 	private static Stream<Shape> hullShapes(TileObject tileObject)
@@ -172,7 +212,7 @@ class BetterObjectHighlightOverlay extends Overlay
 		return Stream.of(tileObject.getCanvasTilePoly());
 	}
 
-	private void renderClickbox(Graphics2D graphics, TileObject tileObject, Stroke stroke)
+	private void renderClickbox(Graphics2D graphics, TileObject tileObject, Stroke stroke, int preset)
 	{
 		Shape clickbox = tileObject.getClickbox();
 		if (clickbox == null)
@@ -180,10 +220,12 @@ class BetterObjectHighlightOverlay extends Overlay
 			return;
 		}
 
-		OverlayUtil.renderPolygon(graphics, clickbox, config.clickboxColor(), config.clickboxFillColor(), stroke);
+		Color border = borderColor(preset, config.clickboxColor());
+		Color fill = fillColor(preset, config.clickboxFillColor());
+		OverlayUtil.renderPolygon(graphics, clickbox, border, fill, stroke);
 	}
 
-	private void renderTile(Graphics2D graphics, TileObject tileObject, Stroke stroke)
+	private void renderTile(Graphics2D graphics, TileObject tileObject, Stroke stroke, int preset)
 	{
 		Polygon tilePolygon = tileObject.getCanvasTilePoly();
 		if (tilePolygon == null)
@@ -191,7 +233,9 @@ class BetterObjectHighlightOverlay extends Overlay
 			return;
 		}
 
-		OverlayUtil.renderPolygon(graphics, tilePolygon, config.tileColor(), config.tileFillColor(), stroke);
+		Color border = borderColor(preset, config.tileColor());
+		Color fill = fillColor(preset, config.tileFillColor());
+		OverlayUtil.renderPolygon(graphics, tilePolygon, border, fill, stroke);
 	}
 
 	private Stroke borderStroke()

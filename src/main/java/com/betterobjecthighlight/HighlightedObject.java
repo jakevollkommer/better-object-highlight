@@ -25,7 +25,7 @@
  */
 package com.betterobjecthighlight;
 
-import java.util.Set;
+import java.util.Map;
 import lombok.Value;
 import net.runelite.api.ObjectComposition;
 import net.runelite.api.TileObject;
@@ -35,6 +35,7 @@ class HighlightedObject
 {
 	TileObject tileObject;
 	ObjectComposition baseComposition;
-	Set<HighlightStyle> styles;
+	/** styles to draw, each mapped to its preset color index (0 = the style's default colors) */
+	Map<HighlightStyle, Integer> presetByStyle;
 	boolean multiloc;
 }

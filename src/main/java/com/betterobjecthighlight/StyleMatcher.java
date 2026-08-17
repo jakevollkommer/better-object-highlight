@@ -25,47 +25,48 @@
 package com.betterobjecthighlight;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Objects;
-import java.util.Set;
+import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.annotation.Nullable;
-import lombok.AccessLevel;
-import lombok.Getter;
+import lombok.Value;
 import net.runelite.client.util.Text;
 import net.runelite.client.util.WildcardMatcher;
 
 /**
- * The parsed form of one config section's ID and name lists.
+ * The parsed form of one config section's ID and name lists. Each entry may carry a
+ * preset color index as an {@code :n} suffix (e.g. {@code 1234:2} or {@code Guardian*:1});
+ * entries without a suffix use the section's default colors.
  */
-@Getter(AccessLevel.PACKAGE)
 class StyleMatcher
 {
-	static final StyleMatcher EMPTY = new StyleMatcher(Collections.emptySet(), Collections.emptyList());
+	static final StyleMatcher EMPTY = new StyleMatcher(Collections.emptyMap(), Collections.emptyList());
+	static final int DEFAULT_COLORS = 0;
+	private static final int PRESET_COUNT = 5;
 
-	private final Set<Integer> objectIds;
-	private final List<String> namePatterns;
+	private final Map<Integer, Integer> presetByObjectId;
+	private final List<NamePattern> namePatterns;
 
-	private StyleMatcher(Set<Integer> objectIds, List<String> namePatterns)
+	private StyleMatcher(Map<Integer, Integer> presetByObjectId, List<NamePattern> namePatterns)
 	{
-		this.objectIds = objectIds;
+		this.presetByObjectId = presetByObjectId;
 		this.namePatterns = namePatterns;
 	}
 
 	static StyleMatcher fromConfigLists(String idList, String nameList)
 	{
-		Set<Integer> objectIds = tokens(idList)
-			.map(StyleMatcher::parseObjectId)
-			.filter(Objects::nonNull)
-			.collect(Collectors.toSet());
-		List<String> namePatterns = tokens(nameList)
+		Map<Integer, Integer> presetByObjectId = new HashMap<>();
+		tokens(idList).forEach(token -> parseIdEntry(token, presetByObjectId));
+
+		List<NamePattern> namePatterns = tokens(nameList)
 			.filter(token -> !token.isBlank())
-			.map(String::trim)
+			.map(StyleMatcher::parseNameEntry)
 			.collect(Collectors.toList());
 
-		boolean hasNoEntries = objectIds.isEmpty() && namePatterns.isEmpty();
-		return hasNoEntries ? EMPTY : new StyleMatcher(objectIds, namePatterns);
+		boolean hasNoEntries = presetByObjectId.isEmpty() && namePatterns.isEmpty();
+		return hasNoEntries ? EMPTY : new StyleMatcher(presetByObjectId, namePatterns);
 	}
 
 	private static Stream<String> tokens(String rawConfigList)
@@ -74,22 +75,60 @@ class StyleMatcher
 		return Text.fromCSV(commaSeparated).stream();
 	}
 
-	@Nullable
-	private static Integer parseObjectId(String token)
+	private static void parseIdEntry(String token, Map<Integer, Integer> presetByObjectId)
 	{
+		String entry = token.trim();
+		int preset = presetSuffix(entry);
+		String idPart = withoutPresetSuffix(entry);
 		try
 		{
-			return Integer.parseInt(token.trim());
+			presetByObjectId.put(Integer.parseInt(idPart), preset);
 		}
 		catch (NumberFormatException invalidNumber)
 		{
-			return null;
+			// skip entries that are not numeric ids
 		}
+	}
+
+	private static NamePattern parseNameEntry(String token)
+	{
+		String entry = token.trim();
+		return new NamePattern(withoutPresetSuffix(entry), presetSuffix(entry));
+	}
+
+	/**
+	 * The preset index of an entry's {@code :n} suffix, or {@link #DEFAULT_COLORS} if absent.
+	 */
+	private static int presetSuffix(String entry)
+	{
+		int separator = entry.lastIndexOf(':');
+		if (separator < 0)
+		{
+			return DEFAULT_COLORS;
+		}
+
+		try
+		{
+			int preset = Integer.parseInt(entry.substring(separator + 1));
+			boolean isValidPreset = preset >= 1 && preset <= PRESET_COUNT;
+			return isValidPreset ? preset : DEFAULT_COLORS;
+		}
+		catch (NumberFormatException notAPreset)
+		{
+			return DEFAULT_COLORS;
+		}
+	}
+
+	private static String withoutPresetSuffix(String entry)
+	{
+		int separator = entry.lastIndexOf(':');
+		boolean hasSuffix = separator >= 0 && presetSuffix(entry) != DEFAULT_COLORS;
+		return hasSuffix ? entry.substring(0, separator) : entry;
 	}
 
 	boolean isEmpty()
 	{
-		return objectIds.isEmpty() && namePatterns.isEmpty();
+		return presetByObjectId.isEmpty() && namePatterns.isEmpty();
 	}
 
 	boolean hasNamePatterns()
@@ -97,12 +136,22 @@ class StyleMatcher
 		return !namePatterns.isEmpty();
 	}
 
-	boolean matchesId(int objectId)
+	/**
+	 * The matched entry's preset index ({@link #DEFAULT_COLORS} for none), or null if no entry
+	 * matches this object id.
+	 */
+	@Nullable
+	Integer presetForId(int objectId)
 	{
-		return objectIds.contains(objectId);
+		return presetByObjectId.get(objectId);
 	}
 
-	boolean matchesName(@Nullable String objectName)
+	/**
+	 * The matched entry's preset index ({@link #DEFAULT_COLORS} for none), or null if no entry
+	 * matches this object name.
+	 */
+	@Nullable
+	Integer presetForName(@Nullable String objectName)
 	{
 		boolean isMatchableName = hasNamePatterns()
 			&& objectName != null
@@ -110,10 +159,14 @@ class StyleMatcher
 			&& !"null".equals(objectName);
 		if (!isMatchableName)
 		{
-			return false;
+			return null;
 		}
 
-		return namePatterns.stream().anyMatch(pattern -> WildcardMatcher.matches(pattern, objectName));
+		return namePatterns.stream()
+			.filter(namePattern -> WildcardMatcher.matches(namePattern.getPattern(), objectName))
+			.map(NamePattern::getPreset)
+			.findFirst()
+			.orElse(null);
 	}
 
 	/**
@@ -122,6 +175,16 @@ class StyleMatcher
 	 */
 	boolean matchesAnythingNotIn(StyleMatcher other)
 	{
-		return !other.objectIds.containsAll(objectIds) || !other.namePatterns.containsAll(namePatterns);
+		boolean idWasRemoved = !other.presetByObjectId.keySet().containsAll(presetByObjectId.keySet());
+		List<String> otherPatterns = other.namePatterns.stream().map(NamePattern::getPattern).collect(Collectors.toList());
+		boolean nameWasRemoved = !namePatterns.stream().map(NamePattern::getPattern).allMatch(otherPatterns::contains);
+		return idWasRemoved || nameWasRemoved;
+	}
+
+	@Value
+	private static class NamePattern
+	{
+		String pattern;
+		int preset;
 	}
 }
