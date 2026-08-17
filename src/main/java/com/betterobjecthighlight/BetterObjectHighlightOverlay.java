@@ -31,7 +31,9 @@ import java.awt.Graphics2D;
 import java.awt.Polygon;
 import java.awt.Shape;
 import java.awt.Stroke;
+import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Stream;
 import javax.inject.Inject;
 import net.runelite.api.Client;
@@ -47,10 +49,6 @@ import net.runelite.client.ui.overlay.OverlayLayer;
 import net.runelite.client.ui.overlay.OverlayPosition;
 import net.runelite.client.ui.overlay.OverlayUtil;
 import net.runelite.client.ui.overlay.outline.ModelOutlineRenderer;
-import static com.betterobjecthighlight.HighlightedObject.HF_CLICKBOX;
-import static com.betterobjecthighlight.HighlightedObject.HF_HULL;
-import static com.betterobjecthighlight.HighlightedObject.HF_OUTLINE;
-import static com.betterobjecthighlight.HighlightedObject.HF_TILE;
 
 class BetterObjectHighlightOverlay extends Overlay
 {
@@ -79,103 +77,104 @@ class BetterObjectHighlightOverlay extends Overlay
 	@Override
 	public Dimension render(Graphics2D graphics)
 	{
-		var objects = plugin.getObjects();
-		if (objects.isEmpty())
+		List<HighlightedObject> highlightedObjects = plugin.getHighlightedObjects();
+		if (highlightedObjects.isEmpty())
 		{
 			return null;
 		}
 
-		WorldView toplevel = client.getTopLevelWorldView();
+		WorldView topLevelWorldView = client.getTopLevelWorldView();
 		Stroke stroke = borderStroke();
 		// enhanced for rather than a stream: this is the per-frame hot path
-		for (HighlightedObject highlighted : objects)
+		for (HighlightedObject highlighted : highlightedObjects)
 		{
-			TileObject object = highlighted.getTileObject();
-			if (!isRenderable(object, toplevel))
-			{
-				continue;
-			}
-
-			int flags = plugin.renderFlags(highlighted);
-			if (flags == 0)
-			{
-				continue;
-			}
-
-			drawHighlights(graphics, object, flags, stroke);
+			renderHighlightedObject(graphics, highlighted, topLevelWorldView, stroke);
 		}
 
 		return null;
 	}
 
-	private static boolean isRenderable(TileObject object, WorldView toplevel)
+	private void renderHighlightedObject(Graphics2D graphics, HighlightedObject highlighted,
+		WorldView topLevelWorldView, Stroke stroke)
 	{
-		WorldView worldView = object.getWorldView();
-		boolean isOnActivePlane = worldView != null && object.getPlane() == worldView.getPlane();
+		TileObject tileObject = highlighted.getTileObject();
+		if (!isRenderable(tileObject, topLevelWorldView))
+		{
+			return;
+		}
+
+		Set<HighlightStyle> styles = plugin.stylesToRender(highlighted);
+		if (styles.isEmpty())
+		{
+			return;
+		}
+
+		if (styles.contains(HighlightStyle.HULL))
+		{
+			renderConvexHull(graphics, tileObject, stroke);
+		}
+
+		if (styles.contains(HighlightStyle.OUTLINE))
+		{
+			modelOutlineRenderer.drawOutline(tileObject, config.outlineWidth(), config.outlineColor(), config.outlineFeather());
+		}
+
+		if (styles.contains(HighlightStyle.CLICKBOX))
+		{
+			renderClickbox(graphics, tileObject, stroke);
+		}
+
+		if (styles.contains(HighlightStyle.TILE))
+		{
+			renderTile(graphics, tileObject, stroke);
+		}
+	}
+
+	private static boolean isRenderable(TileObject tileObject, WorldView topLevelWorldView)
+	{
+		WorldView worldView = tileObject.getWorldView();
+		boolean isOnActivePlane = worldView != null && tileObject.getPlane() == worldView.getPlane();
 		if (!isOnActivePlane)
 		{
 			return false;
 		}
 
-		WorldEntity worldEntity = toplevel.worldEntities().byIndex(worldView.getId());
+		WorldEntity worldEntity = topLevelWorldView.worldEntities().byIndex(worldView.getId());
 		boolean isHiddenForOverlap = worldEntity != null && worldEntity.isHiddenForOverlap();
 		return !isHiddenForOverlap;
 	}
 
-	private void drawHighlights(Graphics2D graphics, TileObject object, int flags, Stroke stroke)
+	private void renderConvexHull(Graphics2D graphics, TileObject tileObject, Stroke stroke)
 	{
-		if ((flags & HF_HULL) != 0)
-		{
-			renderConvexHull(graphics, object, stroke);
-		}
-
-		if ((flags & HF_OUTLINE) != 0)
-		{
-			modelOutlineRenderer.drawOutline(object, config.outlineWidth(), config.outlineColor(), config.outlineFeather());
-		}
-
-		if ((flags & HF_CLICKBOX) != 0)
-		{
-			renderClickbox(graphics, object, stroke);
-		}
-
-		if ((flags & HF_TILE) != 0)
-		{
-			renderTile(graphics, object, stroke);
-		}
-	}
-
-	private void renderConvexHull(Graphics2D graphics, TileObject object, Stroke stroke)
-	{
-		hullShapes(object)
+		hullShapes(tileObject)
 			.filter(Objects::nonNull)
 			.forEach(hull -> OverlayUtil.renderPolygon(graphics, hull, config.hullColor(), config.hullFillColor(), stroke));
 	}
 
-	private static Stream<Shape> hullShapes(TileObject object)
+	private static Stream<Shape> hullShapes(TileObject tileObject)
 	{
-		if (object instanceof GameObject)
+		if (tileObject instanceof GameObject)
 		{
-			return Stream.of(((GameObject) object).getConvexHull());
+			return Stream.of(((GameObject) tileObject).getConvexHull());
 		}
-		if (object instanceof WallObject)
+		if (tileObject instanceof WallObject)
 		{
-			return Stream.of(((WallObject) object).getConvexHull(), ((WallObject) object).getConvexHull2());
+			return Stream.of(((WallObject) tileObject).getConvexHull(), ((WallObject) tileObject).getConvexHull2());
 		}
-		if (object instanceof DecorativeObject)
+		if (tileObject instanceof DecorativeObject)
 		{
-			return Stream.of(((DecorativeObject) object).getConvexHull(), ((DecorativeObject) object).getConvexHull2());
+			return Stream.of(((DecorativeObject) tileObject).getConvexHull(), ((DecorativeObject) tileObject).getConvexHull2());
 		}
-		if (object instanceof GroundObject)
+		if (tileObject instanceof GroundObject)
 		{
-			return Stream.of(((GroundObject) object).getConvexHull());
+			return Stream.of(((GroundObject) tileObject).getConvexHull());
 		}
-		return Stream.of(object.getCanvasTilePoly());
+		return Stream.of(tileObject.getCanvasTilePoly());
 	}
 
-	private void renderClickbox(Graphics2D graphics, TileObject object, Stroke stroke)
+	private void renderClickbox(Graphics2D graphics, TileObject tileObject, Stroke stroke)
 	{
-		Shape clickbox = object.getClickbox();
+		Shape clickbox = tileObject.getClickbox();
 		if (clickbox == null)
 		{
 			return;
@@ -184,25 +183,25 @@ class BetterObjectHighlightOverlay extends Overlay
 		OverlayUtil.renderPolygon(graphics, clickbox, config.clickboxColor(), config.clickboxFillColor(), stroke);
 	}
 
-	private void renderTile(Graphics2D graphics, TileObject object, Stroke stroke)
+	private void renderTile(Graphics2D graphics, TileObject tileObject, Stroke stroke)
 	{
-		Polygon tilePoly = object.getCanvasTilePoly();
-		if (tilePoly == null)
+		Polygon tilePolygon = tileObject.getCanvasTilePoly();
+		if (tilePolygon == null)
 		{
 			return;
 		}
 
-		OverlayUtil.renderPolygon(graphics, tilePoly, config.tileColor(), config.tileFillColor(), stroke);
+		OverlayUtil.renderPolygon(graphics, tilePolygon, config.tileColor(), config.tileFillColor(), stroke);
 	}
 
 	private Stroke borderStroke()
 	{
-		float width = (float) config.borderWidth();
-		boolean strokeIsCurrent = cachedStroke != null && cachedStrokeWidth == width;
+		float configuredWidth = (float) config.borderWidth();
+		boolean strokeIsCurrent = cachedStroke != null && cachedStrokeWidth == configuredWidth;
 		if (!strokeIsCurrent)
 		{
-			cachedStrokeWidth = width;
-			cachedStroke = new BasicStroke(width);
+			cachedStrokeWidth = configuredWidth;
+			cachedStroke = new BasicStroke(configuredWidth);
 		}
 
 		return cachedStroke;

@@ -1,5 +1,4 @@
 /*
- * Copyright (c) 2018, Tomas Slusny <slusnucky@gmail.com>
  * Copyright (c) 2026, Jake Vollkommer
  * All rights reserved.
  *
@@ -25,16 +24,10 @@
  */
 package com.betterobjecthighlight;
 
-import java.util.Set;
-import lombok.Value;
-import net.runelite.api.ObjectComposition;
-import net.runelite.api.TileObject;
-
-@Value
-class HighlightedObject
+enum HighlightStyle
 {
-	TileObject tileObject;
-	ObjectComposition baseComposition;
-	Set<HighlightStyle> styles;
-	boolean multiloc;
+	HULL,
+	OUTLINE,
+	CLICKBOX,
+	TILE
 }
