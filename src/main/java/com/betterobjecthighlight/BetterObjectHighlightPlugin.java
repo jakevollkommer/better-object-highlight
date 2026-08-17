@@ -28,10 +28,13 @@ package com.betterobjecthighlight;
 
 import com.google.inject.Provides;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import javax.inject.Inject;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -83,6 +86,8 @@ public class BetterObjectHighlightPlugin extends Plugin
 	private StyleMatcher clickboxMatcher = StyleMatcher.EMPTY;
 	private StyleMatcher tileMatcher = StyleMatcher.EMPTY;
 	private StyleMatcher hideMatcher = StyleMatcher.EMPTY;
+	// cached so the per-spawn fast path stays allocation-free during scene loads
+	private boolean anyMatcherActive;
 
 	@Inject
 	private Client client;
@@ -127,6 +132,7 @@ public class BetterObjectHighlightPlugin extends Plugin
 		// restore anything the entity hider removed from the scene
 		boolean restoreNeeded = !hideMatcher.isEmpty();
 		hullMatcher = outlineMatcher = clickboxMatcher = tileMatcher = hideMatcher = StyleMatcher.EMPTY;
+		anyMatcherActive = false;
 		if (restoreNeeded)
 		{
 			clientThread.invokeLater(this::reloadScene);
@@ -155,21 +161,23 @@ public class BetterObjectHighlightPlugin extends Plugin
 		// If something was removed from the hide list (or the hider turned off), the only way
 		// to bring removed objects back is a scene reload; otherwise a rescan is enough.
 		boolean needsReload = previousHide.matchesAnythingNotIn(hideMatcher);
-		clientThread.invokeLater(() ->
+		clientThread.invokeLater(() -> applyConfigChange(needsReload));
+	}
+
+	private void applyConfigChange(boolean needsReload)
+	{
+		if (client.getGameState() != GameState.LOGGED_IN)
 		{
-			if (client.getGameState() != GameState.LOGGED_IN)
-			{
-				return;
-			}
-			if (needsReload)
-			{
-				reloadScene();
-			}
-			else
-			{
-				rescanScene();
-			}
-		});
+			return;
+		}
+
+		if (needsReload)
+		{
+			reloadScene();
+			return;
+		}
+
+		rescanScene();
 	}
 
 	@Subscribe
@@ -222,15 +230,15 @@ public class BetterObjectHighlightPlugin extends Plugin
 
 	private void handleSpawn(TileObject object, Tile tile)
 	{
-		if (hullMatcher.isEmpty() && outlineMatcher.isEmpty() && clickboxMatcher.isEmpty()
-			&& tileMatcher.isEmpty() && hideMatcher.isEmpty())
+		if (!anyMatcherActive)
 		{
 			return;
 		}
 
 		ObjectComposition composition = client.getObjectDefinition(object.getId());
 
-		if (!hideMatcher.isEmpty() && matches(hideMatcher, object, composition))
+		boolean shouldHide = !hideMatcher.isEmpty() && matches(hideMatcher, object, composition);
+		if (shouldHide)
 		{
 			hideObject(object, tile);
 			return;
@@ -241,32 +249,33 @@ public class BetterObjectHighlightPlugin extends Plugin
 			(matches(outlineMatcher, object, composition) ? HF_OUTLINE : 0) |
 			(matches(clickboxMatcher, object, composition) ? HF_CLICKBOX : 0) |
 			(matches(tileMatcher, object, composition) ? HF_TILE : 0);
-
-		if (flags != 0)
-		{
-			objects.add(new HighlightedObject(object, composition, flags, composition.getImpostorIds() != null));
-		}
-	}
-
-	private void hideObject(TileObject object, Tile tile)
-	{
-		WorldView wv = object.getWorldView();
-		if (wv == null)
+		if (flags == 0)
 		{
 			return;
 		}
 
-		Scene scene = wv.getScene();
+		boolean isMultiloc = composition.getImpostorIds() != null;
+		objects.add(new HighlightedObject(object, composition, flags, isMultiloc));
+	}
+
+	private void hideObject(TileObject object, Tile tile)
+	{
+		WorldView worldView = object.getWorldView();
+		if (worldView == null)
+		{
+			return;
+		}
+
+		Scene scene = worldView.getScene();
 		if (object instanceof GameObject)
 		{
 			scene.removeGameObject((GameObject) object);
+			return;
 		}
-		else
-		{
-			// Wall, decorative and ground objects have no individual removal API;
-			// removing the tile takes everything on it with it.
-			scene.removeTile(tile);
-		}
+
+		// Wall, decorative and ground objects have no individual removal API;
+		// removing the tile takes everything on it with it.
+		scene.removeTile(tile);
 	}
 
 	private boolean matches(StyleMatcher matcher, TileObject object, ObjectComposition composition)
@@ -276,32 +285,29 @@ public class BetterObjectHighlightPlugin extends Plugin
 			return false;
 		}
 
-		if (matcher.getIds().contains(object.getId()) || matcher.matchesName(composition.getName()))
-		{
-			return true;
-		}
+		boolean matchesBase = matcher.getIds().contains(object.getId())
+			|| matcher.matchesName(composition.getName());
+		return matchesBase || matchesAnyImpostor(matcher, composition);
+	}
 
+	private boolean matchesAnyImpostor(StyleMatcher matcher, ObjectComposition composition)
+	{
 		int[] impostorIds = composition.getImpostorIds();
-		if (impostorIds != null)
+		if (impostorIds == null)
 		{
-			for (int impostorId : impostorIds)
-			{
-				if (impostorId == -1)
-				{
-					continue;
-				}
-				if (matcher.getIds().contains(impostorId))
-				{
-					return true;
-				}
-				if (matcher.hasNames() && matcher.matchesName(client.getObjectDefinition(impostorId).getName()))
-				{
-					return true;
-				}
-			}
+			return false;
 		}
 
-		return false;
+		return Arrays.stream(impostorIds)
+			.filter(impostorId -> impostorId != -1)
+			.anyMatch(impostorId -> matchesImpostor(matcher, impostorId));
+	}
+
+	private boolean matchesImpostor(StyleMatcher matcher, int impostorId)
+	{
+		// id check first: the name check costs an object definition lookup
+		return matcher.getIds().contains(impostorId)
+			|| (matcher.hasNames() && matcher.matchesName(client.getObjectDefinition(impostorId).getName()));
 	}
 
 	/**
@@ -340,48 +346,37 @@ public class BetterObjectHighlightPlugin extends Plugin
 	{
 		objects.clear();
 
-		WorldView wv = client.getTopLevelWorldView();
-		if (wv == null)
+		WorldView worldView = client.getTopLevelWorldView();
+		if (worldView == null)
 		{
 			return;
 		}
 
-		Scene scene = wv.getScene();
-		for (Tile[][] plane : scene.getTiles())
-		{
-			for (Tile[] column : plane)
-			{
-				for (Tile tile : column)
-				{
-					if (tile == null)
-					{
-						continue;
-					}
+		Arrays.stream(worldView.getScene().getTiles())
+			.flatMap(Arrays::stream)
+			.flatMap(Arrays::stream)
+			.filter(Objects::nonNull)
+			.forEach(this::scanTile);
+	}
 
-					if (tile.getWallObject() != null)
-					{
-						handleSpawn(tile.getWallObject(), tile);
-					}
-					if (tile.getDecorativeObject() != null)
-					{
-						handleSpawn(tile.getDecorativeObject(), tile);
-					}
-					if (tile.getGroundObject() != null)
-					{
-						handleSpawn(tile.getGroundObject(), tile);
-					}
-					for (GameObject gameObject : tile.getGameObjects())
-					{
-						// game objects can span multiple tiles; only handle them once
-						if (gameObject != null
-							&& gameObject.getSceneMinLocation().equals(tile.getSceneLocation()))
-						{
-							handleSpawn(gameObject, tile);
-						}
-					}
-				}
-			}
-		}
+	private void scanTile(Tile tile)
+	{
+		Stream.of(tile.getWallObject(), tile.getDecorativeObject(), tile.getGroundObject())
+			.filter(Objects::nonNull)
+			.forEach(object -> handleSpawn(object, tile));
+
+		Arrays.stream(tile.getGameObjects())
+			.filter(Objects::nonNull)
+			.filter(gameObject -> isPrimaryTile(gameObject, tile))
+			.forEach(gameObject -> handleSpawn(gameObject, tile));
+	}
+
+	/**
+	 * Game objects can span multiple tiles; only handle them from their south-west tile.
+	 */
+	private static boolean isPrimaryTile(GameObject gameObject, Tile tile)
+	{
+		return gameObject.getSceneMinLocation().equals(tile.getSceneLocation());
 	}
 
 	private void reloadScene()
@@ -404,6 +399,8 @@ public class BetterObjectHighlightPlugin extends Plugin
 			? StyleMatcher.of(config.tileIds(), config.tileNames()) : StyleMatcher.EMPTY;
 		hideMatcher = config.entityHiderToggle()
 			? StyleMatcher.of(config.entityHiderIds(), config.entityHiderNames()) : StyleMatcher.EMPTY;
+		anyMatcherActive = Stream.of(hullMatcher, outlineMatcher, clickboxMatcher, tileMatcher, hideMatcher)
+			.anyMatch(matcher -> !matcher.isEmpty());
 	}
 
 	@Getter(AccessLevel.PACKAGE)
@@ -422,28 +419,32 @@ public class BetterObjectHighlightPlugin extends Plugin
 
 		static StyleMatcher of(String idList, String nameList)
 		{
-			Set<Integer> ids = new HashSet<>();
-			for (String token : Text.fromCSV(idList.replace('\n', ',')))
-			{
-				try
-				{
-					ids.add(Integer.parseInt(token.trim()));
-				}
-				catch (NumberFormatException ignored)
-				{
-				}
-			}
-
-			List<String> names = new ArrayList<>();
-			for (String token : Text.fromCSV(nameList.replace('\n', ',')))
-			{
-				if (!token.isBlank())
-				{
-					names.add(token.trim());
-				}
-			}
-
+			Set<Integer> ids = tokens(idList)
+				.map(StyleMatcher::parseId)
+				.filter(Objects::nonNull)
+				.collect(Collectors.toSet());
+			List<String> names = tokens(nameList)
+				.filter(token -> !token.isBlank())
+				.map(String::trim)
+				.collect(Collectors.toList());
 			return ids.isEmpty() && names.isEmpty() ? EMPTY : new StyleMatcher(ids, names);
+		}
+
+		private static Stream<String> tokens(String raw)
+		{
+			return Text.fromCSV(raw.replace('\n', ',')).stream();
+		}
+
+		private static Integer parseId(String token)
+		{
+			try
+			{
+				return Integer.parseInt(token.trim());
+			}
+			catch (NumberFormatException ex)
+			{
+				return null;
+			}
 		}
 
 		boolean isEmpty()
@@ -458,20 +459,13 @@ public class BetterObjectHighlightPlugin extends Plugin
 
 		boolean matchesName(String name)
 		{
-			if (names.isEmpty() || name == null || name.isEmpty() || "null".equals(name))
+			boolean isMatchableName = !names.isEmpty() && name != null && !name.isEmpty() && !"null".equals(name);
+			if (!isMatchableName)
 			{
 				return false;
 			}
 
-			for (String pattern : names)
-			{
-				if (WildcardMatcher.matches(pattern, name))
-				{
-					return true;
-				}
-			}
-
-			return false;
+			return names.stream().anyMatch(pattern -> WildcardMatcher.matches(pattern, name));
 		}
 
 		/**

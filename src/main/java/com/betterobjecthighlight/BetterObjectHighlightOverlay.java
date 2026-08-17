@@ -26,12 +26,13 @@
 package com.betterobjecthighlight;
 
 import java.awt.BasicStroke;
-import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Graphics2D;
 import java.awt.Polygon;
 import java.awt.Shape;
 import java.awt.Stroke;
+import java.util.Objects;
+import java.util.stream.Stream;
 import javax.inject.Inject;
 import net.runelite.api.Client;
 import net.runelite.api.DecorativeObject;
@@ -58,6 +59,10 @@ class BetterObjectHighlightOverlay extends Overlay
 	private final BetterObjectHighlightPlugin plugin;
 	private final ModelOutlineRenderer modelOutlineRenderer;
 
+	// render() runs every frame, so reuse the stroke until the configured width changes
+	private Stroke cachedStroke;
+	private float cachedStrokeWidth;
+
 	@Inject
 	private BetterObjectHighlightOverlay(Client client, BetterObjectHighlightConfig config,
 		BetterObjectHighlightPlugin plugin, ModelOutlineRenderer modelOutlineRenderer)
@@ -81,97 +86,125 @@ class BetterObjectHighlightOverlay extends Overlay
 		}
 
 		WorldView toplevel = client.getTopLevelWorldView();
-		Stroke stroke = new BasicStroke((float) config.borderWidth());
-		for (HighlightedObject obj : objects)
+		Stroke stroke = borderStroke();
+		// enhanced for rather than a stream: this is the per-frame hot path
+		for (HighlightedObject highlighted : objects)
 		{
-			TileObject object = obj.getTileObject();
-			WorldView wv = object.getWorldView();
-
-			if (wv == null || object.getPlane() != wv.getPlane())
+			TileObject object = highlighted.getTileObject();
+			if (!isRenderable(object, toplevel))
 			{
 				continue;
 			}
 
-			WorldEntity we = toplevel.worldEntities().byIndex(wv.getId());
-			if (we != null && we.isHiddenForOverlap())
-			{
-				continue;
-			}
-
-			final int flags = plugin.renderFlags(obj);
+			int flags = plugin.renderFlags(highlighted);
 			if (flags == 0)
 			{
 				continue;
 			}
 
-			if ((flags & HF_HULL) != 0)
-			{
-				renderConvexHull(graphics, object, config.hullColor(), config.hullFillColor(), stroke);
-			}
-
-			if ((flags & HF_OUTLINE) != 0)
-			{
-				modelOutlineRenderer.drawOutline(object, config.outlineWidth(), config.outlineColor(), config.outlineFeather());
-			}
-
-			if ((flags & HF_CLICKBOX) != 0)
-			{
-				Shape clickbox = object.getClickbox();
-				if (clickbox != null)
-				{
-					OverlayUtil.renderPolygon(graphics, clickbox, config.clickboxColor(), config.clickboxFillColor(), stroke);
-				}
-			}
-
-			if ((flags & HF_TILE) != 0)
-			{
-				Polygon tilePoly = object.getCanvasTilePoly();
-				if (tilePoly != null)
-				{
-					OverlayUtil.renderPolygon(graphics, tilePoly, config.tileColor(), config.tileFillColor(), stroke);
-				}
-			}
+			drawHighlights(graphics, object, flags, stroke);
 		}
 
 		return null;
 	}
 
-	private static void renderConvexHull(Graphics2D graphics, TileObject object, Color color, Color fillColor, Stroke stroke)
+	private static boolean isRenderable(TileObject object, WorldView toplevel)
 	{
-		final Shape polygon;
-		Shape polygon2 = null;
+		WorldView worldView = object.getWorldView();
+		boolean isOnActivePlane = worldView != null && object.getPlane() == worldView.getPlane();
+		if (!isOnActivePlane)
+		{
+			return false;
+		}
 
+		WorldEntity worldEntity = toplevel.worldEntities().byIndex(worldView.getId());
+		boolean isHiddenForOverlap = worldEntity != null && worldEntity.isHiddenForOverlap();
+		return !isHiddenForOverlap;
+	}
+
+	private void drawHighlights(Graphics2D graphics, TileObject object, int flags, Stroke stroke)
+	{
+		if ((flags & HF_HULL) != 0)
+		{
+			renderConvexHull(graphics, object, stroke);
+		}
+
+		if ((flags & HF_OUTLINE) != 0)
+		{
+			modelOutlineRenderer.drawOutline(object, config.outlineWidth(), config.outlineColor(), config.outlineFeather());
+		}
+
+		if ((flags & HF_CLICKBOX) != 0)
+		{
+			renderClickbox(graphics, object, stroke);
+		}
+
+		if ((flags & HF_TILE) != 0)
+		{
+			renderTile(graphics, object, stroke);
+		}
+	}
+
+	private void renderConvexHull(Graphics2D graphics, TileObject object, Stroke stroke)
+	{
+		hullShapes(object)
+			.filter(Objects::nonNull)
+			.forEach(hull -> OverlayUtil.renderPolygon(graphics, hull, config.hullColor(), config.hullFillColor(), stroke));
+	}
+
+	private static Stream<Shape> hullShapes(TileObject object)
+	{
 		if (object instanceof GameObject)
 		{
-			polygon = ((GameObject) object).getConvexHull();
+			return Stream.of(((GameObject) object).getConvexHull());
 		}
-		else if (object instanceof WallObject)
+		if (object instanceof WallObject)
 		{
-			polygon = ((WallObject) object).getConvexHull();
-			polygon2 = ((WallObject) object).getConvexHull2();
+			return Stream.of(((WallObject) object).getConvexHull(), ((WallObject) object).getConvexHull2());
 		}
-		else if (object instanceof DecorativeObject)
+		if (object instanceof DecorativeObject)
 		{
-			polygon = ((DecorativeObject) object).getConvexHull();
-			polygon2 = ((DecorativeObject) object).getConvexHull2();
+			return Stream.of(((DecorativeObject) object).getConvexHull(), ((DecorativeObject) object).getConvexHull2());
 		}
-		else if (object instanceof GroundObject)
+		if (object instanceof GroundObject)
 		{
-			polygon = ((GroundObject) object).getConvexHull();
+			return Stream.of(((GroundObject) object).getConvexHull());
 		}
-		else
+		return Stream.of(object.getCanvasTilePoly());
+	}
+
+	private void renderClickbox(Graphics2D graphics, TileObject object, Stroke stroke)
+	{
+		Shape clickbox = object.getClickbox();
+		if (clickbox == null)
 		{
-			polygon = object.getCanvasTilePoly();
+			return;
 		}
 
-		if (polygon != null)
+		OverlayUtil.renderPolygon(graphics, clickbox, config.clickboxColor(), config.clickboxFillColor(), stroke);
+	}
+
+	private void renderTile(Graphics2D graphics, TileObject object, Stroke stroke)
+	{
+		Polygon tilePoly = object.getCanvasTilePoly();
+		if (tilePoly == null)
 		{
-			OverlayUtil.renderPolygon(graphics, polygon, color, fillColor, stroke);
+			return;
 		}
 
-		if (polygon2 != null)
+		OverlayUtil.renderPolygon(graphics, tilePoly, config.tileColor(), config.tileFillColor(), stroke);
+	}
+
+	private Stroke borderStroke()
+	{
+		float width = (float) config.borderWidth();
+		boolean strokeIsCurrent = cachedStroke != null && cachedStrokeWidth == width;
+		if (!strokeIsCurrent)
 		{
-			OverlayUtil.renderPolygon(graphics, polygon2, color, fillColor, stroke);
+			cachedStrokeWidth = width;
+			cachedStroke = new BasicStroke(width);
 		}
+
+		return cachedStroke;
 	}
 }
