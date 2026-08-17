@@ -12,6 +12,9 @@ decorative objects, and ground objects.
 - **Per-style ID/name lists** — separate lists for hull, model outline, clickbox, and tile
   highlights, each with its own colors. Lists accept comma- or newline-separated object IDs
   or names (`*` wildcards supported for names).
+- **Preset colors** — append `:n` to any entry to color it with preset `n` (1–5), e.g.
+  `1234:1, 1235:2` or `Guardian*:3`. Presets are configured in the "Preset colors" section;
+  entries without a suffix use the style's default colors.
 - **Entity hider for objects** — objects on the hide list are removed from the scene and never
   rendered. Removing an entry from the list restores the objects (via a quick scene reload).
 - **Multiloc aware** — objects whose appearance changes with game state (farming patches,
