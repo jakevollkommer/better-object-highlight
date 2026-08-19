@@ -313,7 +313,7 @@ public interface BetterObjectHighlightConfig extends Config
 	@ConfigItem(
 		keyName = "supportButton",
 		name = "Buy me a coffee ❤",
-		description = "Enjoying the plugin? Tick to open the Ko-fi page (the box unticks itself)",
+		description = "Enjoying the plugin? Click the box to open the Ko-fi page",
 		position = 99
 	)
 	default boolean supportButton()

@@ -68,13 +68,10 @@ import net.runelite.client.util.LinkBrowser;
 @PluginDescriptor(
 	name = "Better Object Highlight",
 	description = "Highlight game objects by ID or name with per-style lists, and hide objects from rendering entirely",
-	tags = {"object", "objects", "highlight", "hide", "entity", "hider", "indicator", "marker"}
+	tags = {"jake", "object", "objects", "highlight", "marker", "markers", "outline", "hull", "clickbox", "tile", "hide", "hider", "entity", "indicator", "scenery", "id"}
 )
 public class BetterObjectHighlightPlugin extends Plugin
 {
-	@Inject
-	private ConfigManager configManager;
-
 	@Getter(AccessLevel.PACKAGE)
 	private final List<HighlightedObject> highlightedObjects = new ArrayList<>();
 
@@ -99,20 +96,19 @@ public class BetterObjectHighlightPlugin extends Plugin
 	private BetterObjectHighlightConfig config;
 
 	// The config panel cannot host real buttons, so "Buy me a coffee" is a checkbox that
-	// opens the Ko-fi page when ticked and immediately unticks itself.
+	// acts as a button: any click of the box, tick or untick, opens the Ko-fi page.
 	@Subscribe
 	public void onSupportButtonPressed(ConfigChanged event)
 	{
-		boolean isSupportButtonTick = BetterObjectHighlightConfig.GROUP.equals(event.getGroup())
+		boolean isSupportButtonClick = BetterObjectHighlightConfig.GROUP.equals(event.getGroup())
 			&& "supportButton".equals(event.getKey())
-			&& Boolean.parseBoolean(event.getNewValue());
-		if (!isSupportButtonTick)
+			&& event.getNewValue() != null;
+		if (!isSupportButtonClick)
 		{
 			return;
 		}
 
 		LinkBrowser.browse("https://ko-fi.com/jakevollkommer");
-		configManager.setConfiguration(BetterObjectHighlightConfig.GROUP, "supportButton", false);
 	}
 
 	@Provides
