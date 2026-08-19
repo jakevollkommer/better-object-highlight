@@ -311,13 +311,13 @@ public interface BetterObjectHighlightConfig extends Config
 	}
 
 	@ConfigItem(
-		keyName = "supportLink",
-		name = "Buy me a coffee",
-		description = "Enjoying the plugin? Support development at this link",
+		keyName = "supportButton",
+		name = "Buy me a coffee ❤",
+		description = "Enjoying the plugin? Tick to open the Ko-fi page (the box unticks itself)",
 		position = 99
 	)
-	default String supportLink()
+	default boolean supportButton()
 	{
-		return "ko-fi.com/jakevollkommer";
+		return false;
 	}
 }

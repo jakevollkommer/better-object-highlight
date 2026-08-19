@@ -63,6 +63,7 @@ import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.ui.overlay.OverlayManager;
+import net.runelite.client.util.LinkBrowser;
 
 @PluginDescriptor(
 	name = "Better Object Highlight",
@@ -71,6 +72,9 @@ import net.runelite.client.ui.overlay.OverlayManager;
 )
 public class BetterObjectHighlightPlugin extends Plugin
 {
+	@Inject
+	private ConfigManager configManager;
+
 	@Getter(AccessLevel.PACKAGE)
 	private final List<HighlightedObject> highlightedObjects = new ArrayList<>();
 
@@ -93,6 +97,23 @@ public class BetterObjectHighlightPlugin extends Plugin
 
 	@Inject
 	private BetterObjectHighlightConfig config;
+
+	// The config panel cannot host real buttons, so "Buy me a coffee" is a checkbox that
+	// opens the Ko-fi page when ticked and immediately unticks itself.
+	@Subscribe
+	public void onSupportButtonPressed(ConfigChanged event)
+	{
+		boolean isSupportButtonTick = BetterObjectHighlightConfig.GROUP.equals(event.getGroup())
+			&& "supportButton".equals(event.getKey())
+			&& Boolean.parseBoolean(event.getNewValue());
+		if (!isSupportButtonTick)
+		{
+			return;
+		}
+
+		LinkBrowser.browse("https://ko-fi.com/jakevollkommer");
+		configManager.setConfiguration(BetterObjectHighlightConfig.GROUP, "supportButton", false);
+	}
 
 	@Provides
 	BetterObjectHighlightConfig provideConfig(ConfigManager configManager)
