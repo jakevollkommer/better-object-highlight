@@ -63,6 +63,9 @@ import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.ui.overlay.OverlayManager;
+import net.runelite.client.ui.ClientToolbar;
+import net.runelite.client.ui.NavigationButton;
+import net.runelite.client.util.ImageUtil;
 
 @PluginDescriptor(
 	name = "Better Object Highlight",
@@ -71,6 +74,11 @@ import net.runelite.client.ui.overlay.OverlayManager;
 )
 public class BetterObjectHighlightPlugin extends Plugin
 {
+	@Inject
+	private ClientToolbar clientToolbar;
+
+	private NavigationButton navigationButton;
+
 	@Getter(AccessLevel.PACKAGE)
 	private final List<HighlightedObject> highlightedObjects = new ArrayList<>();
 
@@ -105,6 +113,14 @@ public class BetterObjectHighlightPlugin extends Plugin
 	{
 		rebuildMatchers();
 		overlayManager.add(overlay);
+
+		navigationButton = NavigationButton.builder()
+			.tooltip("Better Object Highlight")
+			.icon(ImageUtil.loadImageResource(BetterObjectHighlightPlugin.class, "panel_icon.png"))
+			.priority(9)
+			.panel(new BetterObjectHighlightPanel())
+			.build();
+		clientToolbar.addNavigation(navigationButton);
 		clientThread.invokeLater(this::rescanSceneIfLoggedIn);
 	}
 
@@ -112,6 +128,7 @@ public class BetterObjectHighlightPlugin extends Plugin
 	protected void shutDown()
 	{
 		overlayManager.remove(overlay);
+		clientToolbar.removeNavigation(navigationButton);
 		highlightedObjects.clear();
 
 		boolean hiderWasActive = !hideMatcher.isEmpty();
