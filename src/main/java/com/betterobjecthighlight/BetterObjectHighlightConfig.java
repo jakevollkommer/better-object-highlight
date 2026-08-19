@@ -310,11 +310,31 @@ public interface BetterObjectHighlightConfig extends Config
 		return 2;
 	}
 
+	@ConfigSection(
+		name = "Feedback",
+		description = "Suggestions, bug reports, and support",
+		position = 99
+	)
+	String feedbackSection = "feedbackSection";
+
+	@ConfigItem(
+		keyName = "suggestButton",
+		name = "Suggest a feature",
+		description = "Have an idea or found a bug? Click the box to open the GitHub issues page",
+		section = feedbackSection,
+		position = 0
+	)
+	default boolean suggestButton()
+	{
+		return false;
+	}
+
 	@ConfigItem(
 		keyName = "supportButton",
 		name = "Buy me a coffee ❤",
 		description = "Enjoying the plugin? Click the box to open the Ko-fi page",
-		position = 99
+		section = feedbackSection,
+		position = 1
 	)
 	default boolean supportButton()
 	{
