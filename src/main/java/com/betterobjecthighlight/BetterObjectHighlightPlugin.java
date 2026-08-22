@@ -97,10 +97,9 @@ public class BetterObjectHighlightPlugin extends Plugin
 
 	// The config panel cannot host real buttons, so the Feedback "buttons" are checkboxes
 	// that act as buttons: any click of the box, tick or untick, opens the link.
-	@Subscribe
-	public void onFeedbackButtonPressed(ConfigChanged event)
+	private void handleFeedbackButton(ConfigChanged event)
 	{
-		if (!BetterObjectHighlightConfig.GROUP.equals(event.getGroup()) || event.getNewValue() == null)
+		if (event.getNewValue() == null)
 		{
 			return;
 		}
@@ -169,6 +168,7 @@ public class BetterObjectHighlightPlugin extends Plugin
 		// to bring removed objects back is a scene reload; otherwise a rescan is enough.
 		boolean needsSceneReload = previousHideMatcher.matchesAnythingNotIn(hideMatcher);
 		clientThread.invokeLater(() -> applyConfigChange(needsSceneReload));
+		handleFeedbackButton(event);
 	}
 
 	private void applyConfigChange(boolean needsSceneReload)
